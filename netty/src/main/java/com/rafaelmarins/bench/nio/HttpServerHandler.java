@@ -1,11 +1,11 @@
 package com.rafaelmarins.bench.nio;
 
-import static java.lang.System.*;
 import static org.jboss.netty.buffer.ChannelBuffers.*;
 import static org.jboss.netty.handler.codec.http.HttpHeaders.*;
 import static org.jboss.netty.handler.codec.http.HttpResponseStatus.*;
 import static org.jboss.netty.handler.codec.http.HttpVersion.*;
 
+import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelFuture;
 import org.jboss.netty.channel.ChannelFutureListener;
@@ -14,18 +14,18 @@ import org.jboss.netty.channel.ExceptionEvent;
 import org.jboss.netty.channel.MessageEvent;
 import org.jboss.netty.channel.SimpleChannelUpstreamHandler;
 import org.jboss.netty.channel.ChannelHandler.Sharable;
+import org.jboss.netty.handler.codec.frame.TooLongFrameException;
 import org.jboss.netty.handler.codec.http.DefaultHttpResponse;
 import org.jboss.netty.handler.codec.http.HttpHeaders;
 import org.jboss.netty.handler.codec.http.HttpRequest;
 import org.jboss.netty.handler.codec.http.HttpResponse;
+import org.jboss.netty.handler.codec.http.HttpResponseStatus;
 import org.jboss.netty.util.CharsetUtil;
 
 @Sharable
 public class HttpServerHandler extends SimpleChannelUpstreamHandler {
 
 	private static final String HELLO_WORLD = "<html><body><h1>Ol‡ Mundo!!!</h1></body></html>";
-
-	private long lineBreakCounter = Long.MIN_VALUE;
 
     @Override
     public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
@@ -50,34 +50,35 @@ public class HttpServerHandler extends SimpleChannelUpstreamHandler {
             writeFuture.addListener(ChannelFutureListener.CLOSE);
         }
 
-//        lineBreak();
-//        out.print(".");
-
-    }
-
-    private void lineBreak() {
-        if (lineBreakCounter % 80 == 0) {
-        	out.print(" " + (lineBreakCounter - Long.MIN_VALUE));
-        	out.println();
-        }
-        if (lineBreakCounter >= Long.MAX_VALUE) {
-        	lineBreakCounter = Long.MIN_VALUE;
-        } else {
-            lineBreakCounter++;
-        }
     }
 
 	@Override
     public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e)
     		throws Exception {
-//        e.getCause().printStackTrace();
-//        lineBreak();
-//    	err.print("!");
-        try {
-        	e.getChannel().close();
-        } catch (Throwable t) {
-        	// ignore
+
+        Channel ch = e.getChannel();
+        Throwable cause = e.getCause();
+        if (cause instanceof TooLongFrameException) {
+            sendError(ctx, BAD_REQUEST);
+            return;
         }
+
+//        cause.printStackTrace();
+        if (ch.isConnected()) {
+            sendError(ctx, INTERNAL_SERVER_ERROR);
+        }
+
+    }
+
+    private void sendError(ChannelHandlerContext ctx, HttpResponseStatus status) {
+        HttpResponse response = new DefaultHttpResponse(HTTP_1_1, status);
+        response.setHeader(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8");
+        response.setContent(ChannelBuffers.copiedBuffer(
+                "Failure: " + status.toString() + "\r\n",
+                CharsetUtil.UTF_8));
+
+        // Close the connection as soon as the error message is sent.
+        ctx.getChannel().write(response).addListener(ChannelFutureListener.CLOSE);
     }
 
 }

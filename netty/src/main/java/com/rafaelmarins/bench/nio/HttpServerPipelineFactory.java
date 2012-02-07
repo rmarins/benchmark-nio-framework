@@ -12,6 +12,9 @@ import org.jboss.netty.handler.execution.ExecutionHandler;
 import org.jboss.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
 
 public class HttpServerPipelineFactory implements ChannelPipelineFactory {
+
+	private static String serverRoot;
+
     @Override
     public ChannelPipeline getPipeline() throws Exception {
         // Create a default pipeline implementation.
@@ -33,7 +36,16 @@ public class HttpServerPipelineFactory implements ChannelPipelineFactory {
 
 //        pipeline.addLast("log", new LoggingHandler(InternalLogLevel.INFO));
 
-        pipeline.addLast("handler", new HttpServerHandler());
+        if (serverRoot == null) {
+        	String prop = System.getProperty("serverRoot");
+        	if (prop == null) {
+        		serverRoot = System.getProperty("user.dir");
+        	} else {
+        		serverRoot = prop;
+        	}
+        }
+
+        pipeline.addLast("handler", new HttpServerHandler(serverRoot));
         return pipeline;
     }
 }

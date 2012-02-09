@@ -6,15 +6,16 @@ var http = require('http'),
 function serve_hardcoded(resp) {
 	write_headers(resp, 200, {
 		'Content-Length': 45,
-        'Content-Type': 'text/html; charset=utf-8'
-    });
-	resp.write("<html><body><h1>Ol‡ Mundo!</h1></body></html>", 'utf-8');
+	    'Content-Type': 'text/html; charset=utf-8'
+	});
+	var data = new Buffer('<html><body><h1>Olá Mundo!</h1></body></html>');
+	resp.write(data, 'utf-8');
 	resp.end();
 }
 
 function serve_static_file(path, req, resp) {
 
-    path = '/Users/rmarins/Sites' + path;
+    path = '/home/rmarins' + path;
 	fs.stat(path, function (err, stats) {
         if (err) {
             // ENOENT is normal on 'file not found'

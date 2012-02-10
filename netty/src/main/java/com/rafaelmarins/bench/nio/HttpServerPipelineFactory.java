@@ -1,15 +1,16 @@
 package com.rafaelmarins.bench.nio;
 
-import static org.jboss.netty.channel.Channels.pipeline;
+import static io.netty.channel.Channels.pipeline;
 
 import java.util.concurrent.TimeUnit;
 
-import org.jboss.netty.channel.ChannelPipeline;
-import org.jboss.netty.channel.ChannelPipelineFactory;
-import org.jboss.netty.handler.codec.http.HttpRequestDecoder;
-import org.jboss.netty.handler.codec.http.HttpResponseEncoder;
-import org.jboss.netty.handler.execution.ExecutionHandler;
-import org.jboss.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.ChannelPipelineFactory;
+import io.netty.handler.codec.http.HttpRequestDecoder;
+import io.netty.handler.codec.http.HttpResponseEncoder;
+import io.netty.handler.execution.ExecutionHandler;
+import io.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
+import io.netty.handler.stream.ChunkedWriteHandler;
 
 public class HttpServerPipelineFactory implements ChannelPipelineFactory {
 
@@ -35,6 +36,8 @@ public class HttpServerPipelineFactory implements ChannelPipelineFactory {
 //                                TimeUnit.MILLISECONDS)));
 
 //        pipeline.addLast("log", new LoggingHandler(InternalLogLevel.INFO));
+
+        pipeline.addLast("streamer", new ChunkedWriteHandler());
 
         if (serverRoot == null) {
         	String prop = System.getProperty("serverRoot");

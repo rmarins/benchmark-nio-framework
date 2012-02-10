@@ -5,9 +5,9 @@ import static java.lang.String.format;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
 
-import org.jboss.netty.bootstrap.ServerBootstrap;
-import org.jboss.netty.channel.AdaptiveReceiveBufferSizePredictorFactory;
-import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.AdaptiveReceiveBufferSizePredictorFactory;
+import io.netty.channel.socket.nio.NioServerSocketChannelFactory;
 
 /**
  * Hello world!

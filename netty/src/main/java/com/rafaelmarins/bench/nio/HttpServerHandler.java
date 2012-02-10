@@ -9,6 +9,7 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
@@ -16,12 +17,14 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TimeZone;
 
 import javax.activation.MimetypesFileTypeMap;
 
+import io.netty.buffer.ChannelBuffer;
 import io.netty.buffer.ChannelBuffers;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -29,6 +32,8 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelFutureProgressListener;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelStateEvent;
+import io.netty.channel.Channels;
 import io.netty.channel.DefaultFileRegion;
 import io.netty.channel.ExceptionEvent;
 import io.netty.channel.FileRegion;
@@ -38,11 +43,25 @@ import io.netty.handler.codec.frame.TooLongFrameException;
 import io.netty.handler.codec.http.Cookie;
 import io.netty.handler.codec.http.CookieDecoder;
 import io.netty.handler.codec.http.CookieEncoder;
+import io.netty.handler.codec.http.DefaultHttpDataFactory;
 import io.netty.handler.codec.http.DefaultHttpResponse;
+import io.netty.handler.codec.http.DiskAttribute;
+import io.netty.handler.codec.http.DiskFileUpload;
+import io.netty.handler.codec.http.FileUpload;
+import io.netty.handler.codec.http.HttpChunk;
+import io.netty.handler.codec.http.HttpDataFactory;
 import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpPostRequestDecoder;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.InterfaceHttpData;
+import io.netty.handler.codec.http.HttpPostRequestDecoder.EndOfDataDecoderException;
+import io.netty.handler.codec.http.HttpPostRequestDecoder.ErrorDataDecoderException;
+import io.netty.handler.codec.http.HttpPostRequestDecoder.IncompatibleDataDecoderException;
+import io.netty.handler.codec.http.HttpPostRequestDecoder.NotEnoughDataDecoderException;
+import io.netty.handler.codec.http.InterfaceHttpData.HttpDataType;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedFile;
 import io.netty.util.CharsetUtil;
@@ -55,8 +74,28 @@ public class HttpServerHandler extends SimpleChannelUpstreamHandler {
     public static final int HTTP_CACHE_SECONDS = 60;
 
     private Boolean useZeroCopy;
-    private String docRoot = System.getProperty("user.dir") + File.separatorChar + "Sites";
-    private String uploadsDir = System.getProperty("user.dir") + File.separatorChar + "Public";
+    private String docRoot = System.getProperty("user.dir");
+    private String uploadsDir = System.getProperty("user.dir");
+
+    private volatile HttpRequest request;
+
+    private volatile boolean readingChunks;
+
+    private static final HttpDataFactory factory = new DefaultHttpDataFactory(
+            DefaultHttpDataFactory.MINSIZE); // Disk if size exceed MINSIZE
+
+    private HttpPostRequestDecoder decoder;
+	
+    static {
+        DiskFileUpload.deleteOnExitTemporaryFile = true; // should delete file
+                                                         // on exit (in normal
+                                                         // exit)
+        DiskFileUpload.baseDirectory = null; // system temp directory
+        DiskAttribute.deleteOnExitTemporaryFile = true; // should delete file on
+                                                        // exit (in normal exit)
+        DiskAttribute.baseDirectory = null; // system temp directory
+    }
+
 
     public HttpServerHandler() {
     	super();
@@ -73,39 +112,191 @@ public class HttpServerHandler extends SimpleChannelUpstreamHandler {
 		this.uploadsDir = uploadsDir;
 	}
 
+    @Override
+    public void channelClosed(ChannelHandlerContext ctx, ChannelStateEvent e)
+            throws Exception {
+        if (decoder != null) {
+            decoder.cleanFiles();
+        }
+    }
+
 	@Override
     public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
 
+		if (!readingChunks) {
+	        HttpRequest request = this.request = (HttpRequest) e.getMessage();
+	
+	        if (request.getMethod() != GET && request.getMethod() != POST) {
+	            sendError(ctx, METHOD_NOT_ALLOWED);
+	            return;
+	        }
+	
+	        final String uri = sanitizeUri(request.getUri());
+	        if (uri == null) {
+	            sendError(ctx, FORBIDDEN);
+	            return;
+	        }
+	
+	        if (uri.startsWith("/hardcoded/")) {
+	        	writeHardCodedResponse(e);
+	        } else if (uri.startsWith("/files/")) {
+	        	retrieveStaticFileAndWriteResponse(uri.substring(7), ctx, e);
+	        } else if (uri.startsWith("/uploads/") && request.getMethod() == POST) {
+	        	beginUpload(ctx, e);
+	        } else if (uri.startsWith("/snoop/")) {
+	        	writeSnoopResponse(e);
+	        } else {
+	        	sendError(ctx, NOT_FOUND);
+	        }
+
+		} else {
+        	handleUploadStream(ctx, e);
+		}
+
+    }
+
+	private void handleUploadStream(ChannelHandlerContext ctx, MessageEvent e) {
+        // New chunk is received
+        HttpChunk chunk = (HttpChunk) e.getMessage();
+        try {
+            decoder.offer(chunk);
+        } catch (ErrorDataDecoderException e1) {
+            e1.printStackTrace();
+            Channels.close(e.getChannel());
+            return;
+        }
+        // example of reading chunk by chunk (minimize memory usage due to Factory)
+        readHttpDataChunkByChunk(e.getChannel());
+        // example of reading only if at the end
+        if (chunk.isLast()) {
+            readHttpDataAllReceive(e.getChannel());
+            readingChunks = false;
+            writeResponse(e.getChannel());
+        }
+    }
+
+	private void beginUpload(ChannelHandlerContext ctx, MessageEvent e) {
+        // clean previous FileUpload if Any
+        if (decoder != null) {
+            decoder.cleanFiles();
+            decoder = null;
+        }
+
         HttpRequest request = (HttpRequest) e.getMessage();
 
-        if (request.getMethod() != GET) {
-            sendError(ctx, METHOD_NOT_ALLOWED);
+        // if GET Method: should not try to create a HttpPostRequestDecoder
+        try {
+            decoder = new HttpPostRequestDecoder(factory, request);
+        } catch (ErrorDataDecoderException e1) {
+            e1.printStackTrace();
+            Channels.close(e.getChannel());
+            return;
+        } catch (IncompatibleDataDecoderException e1) {
+            // GET Method: should not try to create a HttpPostRequestDecoder
+            // So OK but stop here
             return;
         }
 
-        final String uri = sanitizeUri(request.getUri());
-        if (uri == null) {
-            sendError(ctx, FORBIDDEN);
-            return;
-        }
-
-        if (uri.startsWith("/hardcoded/")) {
-        	writeHardCodedResponse(e);
-        } else if (uri.startsWith("/files/")) {
-        	retrieveStaticFileAndWriteResponse(uri.substring(7), ctx, e);
-        } else if (uri.startsWith("/uploads/")) {
-        	// do nothing
-        } else if (uri.startsWith("/snoop/")) {
-        	writeSnoopResponse(e);
+        if (request.isChunked()) {
+            // Chunk version
+            readingChunks = true;
         } else {
-        	sendError(ctx, NOT_FOUND);
+            // Not chunk version
+            readHttpDataAllReceive(e.getChannel());
+            writeResponse(e.getChannel());
+        }
+	}
+
+    private void writeResponse(Channel channel) {
+        // Convert the response content to a ChannelBuffer.
+        ChannelBuffer buf = ChannelBuffers.copiedBuffer("File upload completed!\n\n", CharsetUtil.UTF_8);
+
+        // Decide whether to close the connection or not.
+        boolean close = HttpHeaders.Values.CLOSE.equalsIgnoreCase(request
+                .getHeader(HttpHeaders.Names.CONNECTION)) ||
+                request.getProtocolVersion().equals(HttpVersion.HTTP_1_0) &&
+                !HttpHeaders.Values.KEEP_ALIVE.equalsIgnoreCase(request
+                        .getHeader(HttpHeaders.Names.CONNECTION));
+
+        // Build the response object.
+        HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1,
+                HttpResponseStatus.OK);
+        response.setContent(buf);
+        response.setHeader(HttpHeaders.Names.CONTENT_TYPE,
+                "text/plain; charset=UTF-8");
+
+        // Write the response.
+        ChannelFuture future = channel.write(response);
+        // Close the connection after the write operation is done if necessary.
+        if (close) {
+            future.addListener(ChannelFutureListener.CLOSE);
         }
 
     }
 
+    /**
+     * Example of reading all InterfaceHttpData from finished transfer
+     *
+     * @param channel
+     */
+    private void readHttpDataAllReceive(Channel channel) {
+        List<InterfaceHttpData> datas = null;
+        try {
+            datas = decoder.getBodyHttpDatas();
+        } catch (NotEnoughDataDecoderException e1) {
+            // Should not be!
+            e1.printStackTrace();
+            Channels.close(channel);
+            return;
+        }
+        for (InterfaceHttpData data: datas) {
+            writeHttpData(data);
+        }
+    }
+
+    /**
+     * Example of reading request by chunk and getting values from chunk to
+     * chunk
+     *
+     * @param channel
+     */
+    private void readHttpDataChunkByChunk(Channel channel) {
+        try {
+            while (decoder.hasNext()) {
+                InterfaceHttpData data = decoder.next();
+                if (data != null) {
+                    // new value
+                    writeHttpData(data);
+                }
+            }
+        } catch (EndOfDataDecoderException e1) {
+            // end
+        }
+    }
+
+	private void writeHttpData(InterfaceHttpData data) {
+        if (data.getHttpDataType() == HttpDataType.FileUpload) {
+            FileUpload fileUpload = (FileUpload) data;
+            if (fileUpload.isCompleted()) {
+
+            	try {
+	            	File saveTo = File.createTempFile(fileUpload.getFilename() + '-', null, new File(uploadsDir));
+	            	fileUpload.renameTo(saveTo);
+            	} catch (IOException e) {
+            		// do nothing
+            		e.printStackTrace();
+            	} finally {
+                	decoder.removeHttpDataFromClean(fileUpload);
+            	}
+
+            }
+        }
+	    
+    }
+
 	private void writeHardCodedResponse(MessageEvent e) {
 		writeResponse((HttpRequest) e.getMessage(),
-				"<html><body><h1>Ol� Mundo!!!</h1></body></html>",
+				"<html><body><h1>Olá Mundo!!!</h1></body></html>",
 				e.getChannel());
 	}
 
@@ -267,7 +458,7 @@ public class HttpServerHandler extends SimpleChannelUpstreamHandler {
             return;
         }
 
-//        cause.printStackTrace();
+        cause.printStackTrace();
         if (ch.isConnected()) {
             sendError(ctx, INTERNAL_SERVER_ERROR);
         }

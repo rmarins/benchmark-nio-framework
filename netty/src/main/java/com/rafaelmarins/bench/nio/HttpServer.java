@@ -50,7 +50,7 @@ public class HttpServer {
 		if (args.length > 0) {
 			port = Integer.parseInt(args[0]);
 		} else {
-			port = 8010;
+			port = 8080;
 		}
 		new HttpServer(port).run();
 		System.out.println(format("Server running at http://127.0.0.1:%d/", port));

@@ -14,7 +14,8 @@ import io.netty.handler.stream.ChunkedWriteHandler;
 
 public class HttpServerPipelineFactory implements ChannelPipelineFactory {
 
-	private static String serverRoot;
+	private static String docRoot;
+	private static String uploadDir;
 
     @Override
     public ChannelPipeline getPipeline() throws Exception {
@@ -24,31 +25,40 @@ public class HttpServerPipelineFactory implements ChannelPipelineFactory {
         pipeline.addLast("decoder", new HttpRequestDecoder());
         pipeline.addLast("encoder", new HttpResponseEncoder());
 
-// thread pool disabled
-//        pipeline.addLast(
-//                "executor",
-//                new ExecutionHandler(
-//                        new OrderedMemoryAwareThreadPoolExecutor(
-//                                Constant.THREAD_POOL_SIZE,
-//                                Constant.CHANNEL_MEMORY_LIMIT,
-//                                Constant.GLOBAL_MEMORY_LIMIT,
-//                                5000,
-//                                TimeUnit.MILLISECONDS)));
-
-//        pipeline.addLast("log", new LoggingHandler(InternalLogLevel.INFO));
+        boolean threadEnabled = Boolean.parseBoolean(System.getProperty("threading", "false"));
+        if (threadEnabled) {
+	        pipeline.addLast(
+	                "executor",
+	                new ExecutionHandler(
+	                        new OrderedMemoryAwareThreadPoolExecutor(
+	                                Constant.THREAD_POOL_SIZE,
+	                                Constant.CHANNEL_MEMORY_LIMIT,
+	                                Constant.GLOBAL_MEMORY_LIMIT,
+	                                5000,
+	                                TimeUnit.MILLISECONDS)));
+        }
 
         pipeline.addLast("streamer", new ChunkedWriteHandler());
 
-        if (serverRoot == null) {
-        	String prop = System.getProperty("serverRoot");
+        if (docRoot == null) {
+        	String prop = System.getProperty("docRoot");
         	if (prop == null) {
-        		serverRoot = System.getProperty("user.dir");
+        		docRoot = System.getProperty("user.dir");
         	} else {
-        		serverRoot = prop;
+        		docRoot = prop;
         	}
         }
 
-        pipeline.addLast("handler", new HttpServerHandler(serverRoot));
+        if (uploadDir == null) {
+        	String propup = System.getProperty("uploadDir");
+        	if (propup == null) {
+        		uploadDir = System.getProperty("user.dir");
+        	} else {
+        		uploadDir = propup;
+        	}
+        }
+
+        pipeline.addLast("handler", new HttpServerHandler(docRoot, uploadDir));
         return pipeline;
     }
 }

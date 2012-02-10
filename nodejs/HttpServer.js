@@ -15,7 +15,7 @@ function serve_hardcoded(resp) {
 
 function serve_static_file(path, req, resp) {
 
-    path = '/home/rmarins' + path;
+    path = '/Users/rmarins/Sites' + path;
 	fs.stat(path, function (err, stats) {
         if (err) {
             // ENOENT is normal on 'file not found'

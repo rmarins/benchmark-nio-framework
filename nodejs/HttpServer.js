@@ -1,21 +1,26 @@
 var http = require('http'),
     sys = require('util'),
 	fs = require('fs'),
+	os = require('os'),
+	formidable = require('formidable'),
 	mime = require('./content-type');
+
+var docRoot = process.cwd();
+var uploadDir = process.cwd();
 
 function serve_hardcoded(resp) {
 	write_headers(resp, 200, {
 		'Content-Length': 45,
 	    'Content-Type': 'text/html; charset=utf-8'
 	});
-	var data = new Buffer('<html><body><h1>Olá Mundo!</h1></body></html>');
+	var data = new Buffer('<html><body><h1>Ol‡ Mundo!</h1></body></html>');
 	resp.write(data, 'utf-8');
 	resp.end();
 }
 
 function serve_static_file(path, req, resp) {
 
-    path = '/Users/rmarins/Sites' + path;
+    path = docRoot + path;
 	fs.stat(path, function (err, stats) {
         if (err) {
             // ENOENT is normal on 'file not found'
@@ -118,6 +123,37 @@ function serve_static_file(path, req, resp) {
     }
 }
 
+function upload_file(req, res) {
+	if (req.method.toLowerCase() == 'post') {
+		// parse the file upload
+		var form = formidable.IncomingForm();
+		form.parse(req, function(err, fields, files) {
+			res.writeHead(200, {'Content-Type': "text/plain"});
+			res.write('received upload:\n\n');
+			res.end(sys.inspect({fields: fields, files: files}));
+		});
+		form.addListener('file', function(field, file) {
+			var destfile = uploadDir + '/' + os.uptime() + '-' + file.name;
+			fs.rename(file.path, destfile, function(err) {
+				if (err) throw err;
+				fs.stat(destfile, function(err, stats) {
+					if (err) throw err;
+				});
+			});
+		});
+		return;
+	}
+
+    // show a file upload form
+    res.writeHead(200, {'content-type': 'text/html'});
+    res.end( '<form action="/upload" enctype="multipart/form-data" method="post">'
+    		+ '<input type="text" name="title"><br>'
+    		+ '<input type="file" name="upload" multiple="multiple"><br>'
+    		+ '<input type="submit" value="Upload">'
+    		+ '</form>'
+    		);
+}
+
 function send_error(resp, httpstatus, body) {
 	write_headers(resp, httpstatus, {
 		'Content-Length': (body ? body.length : 0),
@@ -138,17 +174,42 @@ function write_headers(resp, httpstatus, headers) {
     resp.writeHead(httpstatus, headers);
 }
 
+function parse_options() {
+	// process parameter options
+	for(var i=2; i<process.argv.length; i++) {
+		switch (process.argv[i]) {
+		case '--doc-root':
+		case '-D':
+			docRoot = process.argv[++i];
+			break;
+		case '--upload-dir':
+		case '-U':
+			uploadDir = process.argv[++i];
+			break;
+		default:
+			console.log('Illegal parameter: ' + process.argv[i]);
+			sys.inspect({args: process.argv});
+			process.exit(-1);
+		}
+	}
+}
+
+parse_options();
+
 http.createServer(function(req, resp) {
 
-	var serveHardcodedRegex = /^\/hardcoded\/(.*)/i;
-	var serveStaticRegex = /^\/files\/(.*)/i;
 
-	if (serveHardcodedRegex.test(req.url)) {
+	var serveStaticRegex = /^\/files\/(.*)/i;
+	var hardCodedRegex = /^\/hardcoded(.*)/i;
+	var fileUploadRegex = /^\/upload(.*)/i;
+
+	if (hardCodedRegex.test(req.url)) {
 		serve_hardcoded(resp);
 	} else if (serveStaticRegex.test(req.url)) {
 		var path = req.url.substr(6);
-//		console.log(path);
 		serve_static_file(path, req, resp);
+	} else if (fileUploadRegex.test(req.url)) {
+		upload_file(req, resp);
 	} else {
 		send_error(resp, 400, 'Bad request: ' + req.url);
 	}

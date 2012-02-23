@@ -4,6 +4,7 @@ import static io.netty.channel.Channels.pipeline;
 
 import java.util.concurrent.TimeUnit;
 
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPipelineFactory;
 import io.netty.handler.codec.http.HttpRequestDecoder;
@@ -17,6 +18,8 @@ public class HttpServerPipelineFactory implements ChannelPipelineFactory {
 	private static String docRoot;
 	private static String uploadDir;
 
+    private ExecutionHandler executionHandler;
+
     @Override
     public ChannelPipeline getPipeline() throws Exception {
         // Create a default pipeline implementation.
@@ -27,15 +30,7 @@ public class HttpServerPipelineFactory implements ChannelPipelineFactory {
 
         boolean threadEnabled = Boolean.parseBoolean(System.getProperty("threading", "false"));
         if (threadEnabled) {
-	        pipeline.addLast(
-	                "executor",
-	                new ExecutionHandler(
-	                        new OrderedMemoryAwareThreadPoolExecutor(
-	                                Constant.THREAD_POOL_SIZE,
-	                                Constant.CHANNEL_MEMORY_LIMIT,
-	                                Constant.GLOBAL_MEMORY_LIMIT,
-	                                5000,
-	                                TimeUnit.MILLISECONDS)));
+	        pipeline.addLast("executor", getExecutionHandler());
         }
 
         pipeline.addLast("streamer", new ChunkedWriteHandler());
@@ -60,5 +55,18 @@ public class HttpServerPipelineFactory implements ChannelPipelineFactory {
 
         pipeline.addLast("handler", new HttpServerHandler(docRoot, uploadDir));
         return pipeline;
+    }
+
+	private ChannelHandler getExecutionHandler() {
+		if (executionHandler == null) {
+			executionHandler = new ExecutionHandler(
+                    new OrderedMemoryAwareThreadPoolExecutor(
+                            Constant.THREAD_POOL_SIZE,
+                            Constant.CHANNEL_MEMORY_LIMIT,
+                            Constant.GLOBAL_MEMORY_LIMIT,
+                            5000,
+                            TimeUnit.MILLISECONDS));
+		}
+	    return executionHandler;
     }
 }

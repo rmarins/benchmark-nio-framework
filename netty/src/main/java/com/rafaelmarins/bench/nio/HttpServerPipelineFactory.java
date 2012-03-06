@@ -64,7 +64,7 @@ public class HttpServerPipelineFactory implements ChannelPipelineFactory {
                             Constant.THREAD_POOL_SIZE,
                             Constant.CHANNEL_MEMORY_LIMIT,
                             Constant.GLOBAL_MEMORY_LIMIT,
-                            5000,
+                            1000,
                             TimeUnit.MILLISECONDS));
 		}
 	    return executionHandler;

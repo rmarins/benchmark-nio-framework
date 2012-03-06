@@ -379,7 +379,7 @@ public class HttpServerHandler extends SimpleChannelUpstreamHandler {
                 @Override
                 public void operationProgressed(
                         ChannelFuture future, long amount, long current, long total) {
-                    System.out.printf("%s: %d / %d (+%d)%n", path, current, total, amount);
+                    // System.out.printf("%s: %d / %d (+%d)%n", path, current, total, amount);
                 }
             });
         }
@@ -458,7 +458,7 @@ public class HttpServerHandler extends SimpleChannelUpstreamHandler {
             return;
         }
 
-        cause.printStackTrace();
+        //cause.printStackTrace();
         if (ch.isConnected()) {
             sendError(ctx, INTERNAL_SERVER_ERROR);
         }

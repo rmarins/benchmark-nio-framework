@@ -13,7 +13,7 @@ function serve_hardcoded(resp) {
 		'Content-Length': 45,
 	    'Content-Type': 'text/html; charset=utf-8'
 	});
-	var data = new Buffer('<html><body><h1>Ol‡ Mundo!</h1></body></html>');
+	var data = new Buffer('<html><body><h1>Olï¿½ Mundo!</h1></body></html>');
 	resp.write(data, 'utf-8');
 	resp.end();
 }
@@ -197,7 +197,6 @@ function parse_options() {
 parse_options();
 
 http.createServer(function(req, resp) {
-
 
 	var serveStaticRegex = /^\/files\/(.*)/i;
 	var hardCodedRegex = /^\/hardcoded(.*)/i;

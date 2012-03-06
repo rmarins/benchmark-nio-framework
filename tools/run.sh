@@ -1,22 +1,10 @@
 #!/bin/sh
 #
 
-#
-# $* and $@, expand to the value of all the positional parameters combined
-# $# expands to the number of positional parameters
-# $0 contains the path to the currently running script or to the shell itself
-#    if no script is being executed
-# $$ contains the process identification number (PID) of the current process
-# $? is set to the exit code of the last-executed command
-# $_ is set to the last argument to that command
-# $! contains the PID of the last command executed in the background
-# $- is set to the option flags currently in effect
-###
-
 PRG="$0"
 CWD=`pwd`
 BENCHMARK_HOME="`dirname ${PRG}`/.."
-BENCHMARK_LOAD="1 5 10 20 50 100 200 500 1000 2000 5000 7000 10000"
+BENCHMARK_LOAD="4 100 3 1000 2 5000 1 10000"
 
 BASE_URL="http://localhost:8080"
 
@@ -50,6 +38,24 @@ log_benchmark() #@ USAGE: log_benchmark <context> <server_name>
   printf "Benchmarking $1 against $2 with $3/$4 load.\n" >> $logfile
 }
 
+
+_fibonacci() #@ USAGE _fibonacci <num>
+{
+	f1=0
+	f2=1
+
+  i=0
+  while [ $i -le $1 ]; do
+		fn=$((f1+f2))
+		f1=$f2
+		f2=$fn
+		i=$(( i + 1 ))
+	done
+
+	_FIBONNACI=$fn
+}
+
+
 #
 # Run the benchmark
 #
@@ -60,14 +66,77 @@ run_hardcore_benchmark() #@ USAGE: run_hardcore_benchmark <server_name>
   context_path="/hardcore/test"
   log_benchmark "$context_path" "$1" "$2" "$3"
 
-  sleep 10 # wait a while before stressing the server
+  sleep 30 # wait a while before stressing the server
 
   # Apache Benchmarking tool
   ##
   output_file_prefix="ab_hardcoded_$1_$3"
  
-  $AB_EXEC -k -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
-    "${BASE_URL}${context_path}" >> "${CWD}/${output_file_prefix}.out"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}" >> "${CWD}/${output_file_prefix}.out" 2>&1
+
+}
+
+run_static_benchmark() #@ USAGE: run_static_benchmark <server_name>
+                         #             <no_connections> <no_concurrency>
+{
+  context_path="/files/"
+  log_benchmark "$context_path" "$1" "$2" "$3"
+
+  sleep 30
+
+  output_file_prefix="ab_hardcoded_16kb_$1_$3"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}file16.kb" >> "${CWD}/${output_file_prefix}.out"
+
+  sleep 30
+
+  output_file_prefix="ab_hardcoded_35kb_$1_$3"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}file35.kb" >> "${CWD}/${output_file_prefix}.out" \
+     2>&1
+
+  sleep 30
+
+  output_file_prefix="ab_hardcoded_116kb_$1_$3"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}file116.kb" >> "${CWD}/${output_file_prefix}.out" \
+		 2>&1
+
+  sleep 30
+
+  output_file_prefix="ab_hardcoded_511kb_$1_$3"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}file511.kb" >> "${CWD}/${output_file_prefix}.out" \
+		 2>&1
+
+  sleep 30
+
+  output_file_prefix="ab_hardcoded_1mb_$1_$3"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}file1.mb" >> "${CWD}/${output_file_prefix}.out" \
+		 2>&1
+
+  sleep 30
+
+  output_file_prefix="ab_hardcoded_2mb_$1_$3"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}file2.mb" >> "${CWD}/${output_file_prefix}.out" \
+		 2>&1
+
+  sleep 30
+
+  output_file_prefix="ab_hardcoded_20mb_$1_$3"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}file20.mb" >> "${CWD}/${output_file_prefix}.out" \
+		 2>&1
+
+  sleep 30
+
+  output_file_prefix="ab_hardcoded_221mb_$1_$3"
+  $AB_EXEC -n $2 -c $3 -g "${CWD}/${output_file_prefix}.dat" \
+    "${BASE_URL}${context_path}file221.mb" >> "${CWD}/${output_file_prefix}.out" \
+		 2>&1
 
 }
 
@@ -76,7 +145,12 @@ run_benchmark() #@ USAGE: run_benchmark <server_name>
   printf "Running the benchmark...\n"
 
   for concurrency in $BENCHMARK_LOAD; do
-    run_hardcore_benchmark $1 $(( $concurrency * 1000 )) $concurrency
+		_fibonacci $concurrency
+    run_hardcore_benchmark $1 $(( $concurrency * 30 )) $concurrency
+  done
+
+  for concurrency in $BENCHMARK_LOAD; do
+    run_static_benchmark $1 $(( $concurrency * 30 )) $concurrency
   done
 
 }
@@ -98,7 +172,7 @@ _do_process_status() #@ do_process_status <pid> <server_name> [interval]
 # Parse command line arguments
 ##
 
-doc_root=${CWD}
+doc_root="${BENCHMARK_HOME}/static"
 
 #
 # Start collecting overall system stats with dstat, watching the time, memory,
@@ -106,7 +180,7 @@ doc_root=${CWD}
 # page for more details about the options !
 ##
 
-$DSTAT_EXEC -tm -c -C 0,1,2,3,4,5,6,7,total -d --aio -n -N lo,total --integer \
+$DSTAT_EXEC -tm -c -d --aio -n -N lo,total --integer \
     --output $DSTAT_OUT >> /dev/null &
 dstat_pid=$!
 
@@ -120,7 +194,7 @@ export MAVEN_OPTS="-DdocRoot=${doc_root} -Dthreading=true -server -Xms64m \
     -Xmx64m -XX:+UseParallelGC -XX:+AggressiveOpts -XX:+UseFastAccessorMethods \
     -XX:MaxPermSize=32m -XX:PermSize=16m"
 
-$MAVEN_EXEC clean compile exec:java >> "${CWD}/stdout_netty.log" &
+$MAVEN_EXEC clean compile exec:java >> "${CWD}/stdout_netty.log" 2>&1 &
 netty_pid=$!
 printf "Netty is running on pid %s\n" "$netty_pid"
 
@@ -130,15 +204,16 @@ ps_pid=$_DO_PROCESS_STATUS
 run_benchmark "netty"
 
 kill $ps_pid $netty_pid # stops Netty
+sleep 60
 
 #
 # Start/stop Node.js HTTP server and run the benchmark
 ##
 
 cd $BENCHMARK_HOME/nodejs
-export NODE_PATH=".:${HOME}/.node_modules:/usr/lib/node_modules:${NODE_PATH}"
+export NODE_PATH=".:/usr/lib/node_modules:${NODE_PATH}"
 
-$NODE_EXEC --doc-root=${doc_root} >> ${CWD}/stdout_nodejs.log &
+$NODE_EXEC HttpServer.js --doc-root ${doc_root} >> ${CWD}/stdout_nodejs.log 2>&1 &
 node_pid=$!
 printf "Node.js is running on pid %s\n" "$node_pid"
 
